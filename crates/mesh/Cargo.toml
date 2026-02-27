@@ -1,0 +1,27 @@
+[package]
+edition.workspace = true
+name              = "moltis-mesh"
+version.workspace = true
+
+[features]
+default = ["metrics", "tracing"]
+metrics = ["dep:moltis-metrics"]
+tracing = ["dep:tracing"]
+
+[dependencies]
+anyhow       = { workspace = true }
+async-trait  = { workspace = true }
+moltis-metrics = { optional = true, workspace = true }
+rustls       = { workspace = true }
+secrecy      = { workspace = true }
+serde        = { workspace = true }
+thiserror    = { workspace = true }
+tokio        = { workspace = true }
+tracing      = { optional = true, workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio      = { features = ["macros", "rt-multi-thread"], workspace = true }
+
+[lints]
+workspace = true

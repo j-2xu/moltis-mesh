@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, Secret};
 
 use {
     axum::{
@@ -1485,19 +1485,158 @@ pub async fn prepare_gateway(
         }
     };
 
+    // Resolve centralized secret backend (HC Vault or local vault wrapper).
+    #[cfg(feature = "hc-vault")]
+    let secret_backend: Option<Arc<dyn moltis_mesh::SecretBackend>> = {
+        if let Some(ref hc_vault_section) = config.hc_vault {
+            match moltis_hc_vault::HcVaultConfig::try_from_config_section(hc_vault_section) {
+                Ok(hc_config) => {
+                    // Extract initial token from auth config (placeholder for AppRole/K8s).
+                    let initial_token = match &hc_config.auth {
+                        moltis_hc_vault::config::HcVaultAuth::Token { token } => {
+                            Secret::new(token.expose_secret().clone())
+                        },
+                        _ => Secret::new(String::new()),
+                    };
+                    match moltis_hc_vault::VaultClient::new(hc_config.clone(), initial_token) {
+                        Ok(vault_client) => {
+                            let client = Arc::new(vault_client);
+                            // Create shutdown channel for token renewal.
+                            let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+                            let token_manager = Arc::new(
+                                moltis_hc_vault::TokenManager::new(
+                                    Arc::clone(&client),
+                                    hc_config,
+                                    shutdown_rx,
+                                ),
+                            );
+                            match token_manager.authenticate().await {
+                                Ok(()) => {
+                                    Arc::clone(&token_manager).spawn_renewal();
+                                    // Keep shutdown_tx alive so the renewal task doesn't stop.
+                                    std::mem::forget(shutdown_tx);
+                                    let backend = moltis_hc_vault::HcVaultBackend::new(client);
+                                    info!("hc-vault: secret backend initialized");
+                                    Some(Arc::new(backend) as Arc<dyn moltis_mesh::SecretBackend>)
+                                },
+                                Err(e) => {
+                                    warn!(error = %e, "hc-vault: authentication failed, falling back to local vault");
+                                    None
+                                },
+                            }
+                        },
+                        Err(e) => {
+                            warn!(error = %e, "hc-vault: client creation failed, falling back to local vault");
+                            None
+                        },
+                    }
+                },
+                Err(e) => {
+                    warn!(error = %e, "hc-vault: invalid config, falling back to local vault");
+                    None
+                },
+            }
+        } else {
+            None
+        }
+    };
+    #[cfg(not(feature = "hc-vault"))]
+    let secret_backend: Option<Arc<dyn moltis_mesh::SecretBackend>> = None;
+
+    // Wrap local vault in SecretBackend trait when no external backend is configured.
+    #[cfg(feature = "vault")]
+    let secret_backend: Option<Arc<dyn moltis_mesh::SecretBackend>> = if secret_backend.is_some() {
+        secret_backend
+    } else if let Some(ref v) = vault {
+        debug!("secret backend: using local vault");
+        Some(
+            Arc::new(moltis_vault::LocalSecretBackend::new(v.clone(), db_pool.clone()))
+                as Arc<dyn moltis_mesh::SecretBackend>,
+        )
+    } else {
+        None
+    };
+
     // Initialize credential store (auth tables).
     #[cfg(feature = "vault")]
-    let credential_store = Arc::new(
-        auth::CredentialStore::with_vault(db_pool.clone(), &config.auth, vault.clone())
-            .await
-            .expect("failed to init credential store"),
-    );
+    let credential_store = {
+        let mut store =
+            auth::CredentialStore::with_vault(db_pool.clone(), &config.auth, vault.clone())
+                .await
+                .expect("failed to init credential store");
+        #[cfg(feature = "hc-vault")]
+        if let Some(ref backend) = secret_backend {
+            store.set_secret_backend(Arc::clone(backend));
+        }
+        Arc::new(store)
+    };
     #[cfg(not(feature = "vault"))]
-    let credential_store = Arc::new(
-        auth::CredentialStore::new(db_pool.clone())
+    let credential_store = {
+        let mut store = auth::CredentialStore::with_config(db_pool.clone(), &config.auth)
             .await
-            .expect("failed to init credential store"),
-    );
+            .expect("failed to init credential store");
+        #[cfg(feature = "hc-vault")]
+        if let Some(ref backend) = secret_backend {
+            store.set_secret_backend(Arc::clone(backend));
+        }
+        Arc::new(store)
+    };
+
+    // Initialize Consul service registry and mTLS cert manager when configured.
+    #[cfg(feature = "consul")]
+    let consul_registry: Option<Arc<moltis_consul::registration::ConsulServiceRegistry>> =
+        if let Some(ref consul_section) = config.consul {
+            match moltis_consul::config::ConsulConfig::try_from_config_section(consul_section) {
+                Ok(consul_config) => {
+                    match moltis_consul::client::ConsulClient::new(consul_config.clone()) {
+                        Ok(client) => {
+                            let client = Arc::new(client);
+                            let registry = Arc::new(
+                                moltis_consul::registration::ConsulServiceRegistry::new(
+                                    client.clone(),
+                                    consul_config.clone(),
+                                ),
+                            );
+                            // Register with Consul on startup.
+                            let reg = moltis_mesh::ServiceRegistration {
+                                name: consul_config.service_name.clone(),
+                                id: consul_config.service_name.clone(),
+                                address: bind.to_string(),
+                                port,
+                                tags: vec![
+                                    "moltis".into(),
+                                    format!("v{}", env!("CARGO_PKG_VERSION")),
+                                ],
+                                meta: HashMap::new(),
+                            };
+                            if let Err(e) =
+                                moltis_mesh::ServiceRegistry::register(&*registry, reg).await
+                            {
+                                warn!(error = %e, "consul: failed to register service");
+                            } else {
+                                info!(
+                                    "consul: service registered as '{}'",
+                                    consul_config.service_name
+                                );
+                            }
+                            Some(registry)
+                        },
+                        Err(e) => {
+                            warn!(error = %e, "consul: failed to create client");
+                            None
+                        },
+                    }
+                },
+                Err(e) => {
+                    warn!(error = %e, "consul: invalid config, service mesh disabled");
+                    None
+                },
+            }
+        } else {
+            None
+        };
+    #[cfg(not(feature = "consul"))]
+    let consul_registry: Option<()> = None;
 
     // Runtime env overrides from the settings UI (`/api/env`) layered after
     // config `[env]`. Process env remains highest precedence.
@@ -2858,6 +2997,15 @@ pub async fn prepare_gateway(
             inner.metrics_history =
                 crate::state::MetricsHistory::new(config.metrics.history_points);
         }
+        // Store mesh integration references.
+        #[cfg(feature = "hc-vault")]
+        {
+            inner.secret_backend = secret_backend.clone();
+        }
+        #[cfg(feature = "consul")]
+        {
+            inner.consul_registry = consul_registry.clone();
+        }
     }
 
     // Note: LLM provider registry is available through the ChatService,
@@ -2868,7 +3016,7 @@ pub async fn prepare_gateway(
         if !credential_store.is_setup_complete() && !credential_store.is_auth_disabled() {
             let code = std::env::var("MOLTIS_E2E_SETUP_CODE")
                 .unwrap_or_else(|_| crate::auth_routes::generate_setup_code());
-            state.inner.write().await.setup_code = Some(secrecy::Secret::new(code.clone()));
+            state.inner.write().await.setup_code = Some(Secret::new(code.clone()));
             Some(code)
         } else {
             None
@@ -3468,6 +3616,29 @@ pub async fn prepare_gateway(
         format!("data: {}", data_dir.display()),
         format!("openclaw: {openclaw_startup_status}"),
     ];
+    // Add mesh integration lines to startup banner.
+    #[cfg(feature = "hc-vault")]
+    if secret_backend.is_some() {
+        let backend_name = secret_backend
+            .as_ref()
+            .map(|b| b.backend_name())
+            .unwrap_or("none");
+        lines.push(format!("secrets: {backend_name} backend"));
+    }
+    #[cfg(feature = "consul")]
+    if consul_registry.is_some() {
+        let mode = config
+            .consul
+            .as_ref()
+            .and_then(|c| c.mesh_mode.as_deref())
+            .unwrap_or("none");
+        let svc = config
+            .consul
+            .as_ref()
+            .and_then(|c| c.service_name.as_deref())
+            .unwrap_or("moltis-gateway");
+        lines.push(format!("consul: registered as '{svc}' (mesh: {mode})"));
+    }
     lines.extend(startup_passkey_origin_lines(&passkey_origins));
     // Hint about Apple Container on macOS when using Docker.
     #[cfg(target_os = "macos")]
@@ -3558,6 +3729,32 @@ pub async fn prepare_gateway(
             loop {
                 interval.tick().await;
                 browser_for_cleanup.cleanup_idle().await;
+            }
+        });
+    }
+
+    // Spawn Consul TTL health reporting when registered.
+    #[cfg(feature = "consul")]
+    if let Some(ref registry) = consul_registry {
+        let health_registry = Arc::clone(registry);
+        let interval_secs = config
+            .consul
+            .as_ref()
+            .and_then(|c| c.health_check_interval)
+            .unwrap_or(10);
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            loop {
+                interval.tick().await;
+                if let Err(e) = moltis_mesh::ServiceRegistry::report_health(
+                    &*health_registry,
+                    moltis_mesh::HealthStatus::Passing,
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "consul: failed to report health");
+                }
             }
         });
     }
@@ -4372,11 +4569,20 @@ pub async fn start_gateway(
     }
 
     // Spawn shutdown handler:
+    // - deregister from Consul (when configured)
     // - reset tailscale state on exit (when configured)
     // - give browser pool 5s to shut down gracefully
     // - force process exit to avoid hanging after ctrl-c
     {
         let browser_for_shutdown = Arc::clone(&banner.browser_for_lifecycle);
+        #[cfg(feature = "consul")]
+        let consul_for_shutdown = state
+            .inner
+            .read()
+            .await
+            .consul_registry
+            .as_ref()
+            .map(Arc::clone);
         #[cfg(feature = "tailscale")]
         let reset_tailscale_on_exit =
             banner.tailscale_mode != TailscaleMode::Off && banner.tailscale_reset_on_exit;
@@ -4385,6 +4591,15 @@ pub async fn start_gateway(
         tokio::spawn(async move {
             if tokio::signal::ctrl_c().await.is_err() {
                 return;
+            }
+
+            // Deregister from Consul before shutdown.
+            #[cfg(feature = "consul")]
+            if let Some(ref registry) = consul_for_shutdown {
+                info!("deregistering from consul");
+                if let Err(e) = moltis_mesh::ServiceRegistry::deregister(&**registry).await {
+                    warn!("failed to deregister from consul: {e}");
+                }
             }
 
             #[cfg(feature = "tailscale")]
@@ -4460,12 +4675,33 @@ pub async fn start_gateway(
 
 async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
     let count = state.gateway.client_count().await;
-    Json(serde_json::json!({
+    let mut body = serde_json::json!({
         "status": "ok",
         "version": state.gateway.version,
         "protocol": moltis_protocol::PROTOCOL_VERSION,
         "connections": count,
-    }))
+    });
+
+    // Include secret backend status when available.
+    #[cfg(feature = "hc-vault")]
+    if let Some(ref backend) = state.gateway.inner.read().await.secret_backend {
+        let status = backend.status().await;
+        body["secret_backend"] = serde_json::json!({
+            "name": backend.backend_name(),
+            "status": format!("{status:?}"),
+        });
+    }
+
+    // Include Consul service registry status when available.
+    #[cfg(feature = "consul")]
+    if let Some(ref registry) = state.gateway.inner.read().await.consul_registry {
+        body["consul"] = serde_json::json!({
+            "registered": true,
+            "service_name": registry.service_name(),
+        });
+    }
+
+    Json(body)
 }
 
 async fn ws_upgrade_handler(

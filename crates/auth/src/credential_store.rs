@@ -1,4 +1,4 @@
-#[cfg(feature = "vault")]
+#[cfg(any(feature = "vault", feature = "secret-backend"))]
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -94,6 +94,11 @@ pub struct CredentialStore {
     /// Encryption-at-rest vault for environment variables.
     #[cfg(feature = "vault")]
     vault: Option<Arc<Vault>>,
+    /// External secret backend (e.g. HashiCorp Vault) for centralized env var storage.
+    /// When present, `set_env_var` and `get_all_env_values` delegate to this backend
+    /// instead of the local SQLite + vault encryption path.
+    #[cfg(feature = "secret-backend")]
+    secret_backend: Option<Arc<dyn moltis_mesh::SecretBackend>>,
 }
 
 impl CredentialStore {
@@ -123,6 +128,8 @@ impl CredentialStore {
             auth_disabled: AtomicBool::new(false),
             #[cfg(feature = "vault")]
             vault: None,
+            #[cfg(feature = "secret-backend")]
+            secret_backend: None,
         };
         store.init().await?;
         let has = store.has_password().await? || store.has_passkeys().await?;
@@ -154,6 +161,8 @@ impl CredentialStore {
             setup_complete: AtomicBool::new(false),
             auth_disabled: AtomicBool::new(false),
             vault,
+            #[cfg(feature = "secret-backend")]
+            secret_backend: None,
         };
         store.init().await?;
         let has = store.has_password().await? || store.has_passkeys().await?;
@@ -171,6 +180,15 @@ impl CredentialStore {
         let disabled = db_disabled.map_or(auth_config.disabled, |(value,)| value != 0);
         store.auth_disabled.store(disabled, Ordering::Relaxed);
         Ok(store)
+    }
+
+    /// Attach a centralized secret backend for environment variable storage.
+    ///
+    /// When set, `set_env_var` and `get_all_env_values` delegate to the
+    /// backend (e.g. HC Vault KV) instead of the local SQLite + vault encryption.
+    #[cfg(feature = "secret-backend")]
+    pub fn set_secret_backend(&mut self, backend: Arc<dyn moltis_mesh::SecretBackend>) {
+        self.secret_backend = Some(backend);
     }
 
     /// Initialize auth tables.
@@ -548,9 +566,19 @@ impl CredentialStore {
 
     /// Set (upsert) an environment variable.
     ///
-    /// When the vault feature is enabled and the vault is unsealed, the value
-    /// is encrypted before storage and `encrypted` is set to `1`.
+    /// When a secret backend is configured, the value is stored there under
+    /// `env/<key>`. Otherwise, when the vault feature is enabled and the vault
+    /// is unsealed, the value is encrypted before local SQLite storage.
     pub async fn set_env_var(&self, key: &str, value: &str) -> anyhow::Result<i64> {
+        // Delegate to centralized secret backend when available.
+        #[cfg(feature = "secret-backend")]
+        if let Some(ref backend) = self.secret_backend {
+            let path = format!("env/{key}");
+            backend.put_secret(&path, value, None).await?;
+            // Return 0 as synthetic row id — the value lives in the backend, not SQLite.
+            return Ok(0);
+        }
+
         #[cfg(feature = "vault")]
         let (store_value, encrypted) = {
             if let Some(ref vault) = self.vault {
@@ -595,9 +623,32 @@ impl CredentialStore {
 
     /// Get all environment variable key-value pairs (internal use for sandbox injection).
     ///
-    /// When the vault feature is enabled, rows with `encrypted=1` are decrypted
-    /// using the vault. Rows that fail decryption are skipped with a warning.
+    /// When a secret backend is configured, values are read from the backend
+    /// under the `env/` prefix. Otherwise, when the vault feature is enabled,
+    /// rows with `encrypted=1` are decrypted using the vault. Rows that fail
+    /// decryption are skipped with a warning.
     pub async fn get_all_env_values(&self) -> anyhow::Result<Vec<(String, String)>> {
+        // Delegate to centralized secret backend when available.
+        #[cfg(feature = "secret-backend")]
+        if let Some(ref backend) = self.secret_backend {
+            let keys = backend.list_secrets("env/").await?;
+            let mut result = Vec::with_capacity(keys.len());
+            for full_path in keys {
+                let key = full_path.strip_prefix("env/").unwrap_or(&full_path);
+                match backend.get_secret(&full_path).await {
+                    Ok(Some(value)) => result.push((key.to_string(), value)),
+                    Ok(None) => {
+                        tracing::debug!(key = %key, "secret backend returned None for listed key");
+                    },
+                    Err(e) => {
+                        tracing::warn!(key = %key, error = %e, "failed to read env var from secret backend, skipping");
+                    },
+                }
+            }
+            result.sort_by(|(a, _), (b, _)| a.cmp(b));
+            return Ok(result);
+        }
+
         let rows: Vec<(String, String, i64)> = sqlx::query_as(
             "SELECT key, value, COALESCE(encrypted, 0) FROM env_variables ORDER BY key ASC",
         )

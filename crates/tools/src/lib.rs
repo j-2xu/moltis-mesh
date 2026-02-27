@@ -26,6 +26,8 @@ pub mod exec;
 pub mod image_cache;
 pub mod location;
 pub mod map;
+#[cfg(feature = "nomad")]
+pub mod nomad_sandbox;
 pub mod policy;
 pub mod process;
 pub mod sandbox;

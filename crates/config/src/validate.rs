@@ -565,6 +565,49 @@ fn build_schema_map() -> KnownKeys {
                 ),
             ])),
         ),
+        (
+            "hc_vault",
+            Struct(HashMap::from([
+                ("address", Leaf),
+                ("auth_method", Leaf),
+                ("token", Leaf),
+                ("role_id", Leaf),
+                ("secret_id", Leaf),
+                ("role", Leaf),
+                ("mount_path", Leaf),
+                ("path_prefix", Leaf),
+                ("transit_mount", Leaf),
+                ("namespace", Leaf),
+                ("tls_ca_cert", Leaf),
+            ])),
+        ),
+        (
+            "consul",
+            Struct(HashMap::from([
+                ("address", Leaf),
+                ("token", Leaf),
+                ("datacenter", Leaf),
+                ("service_name", Leaf),
+                ("health_check_interval", Leaf),
+                ("mesh_mode", Leaf),
+                ("tls_ca_cert", Leaf),
+                ("intention_cache_ttl", Leaf),
+            ])),
+        ),
+        (
+            "nomad",
+            Struct(HashMap::from([
+                ("address", Leaf),
+                ("token", Leaf),
+                ("namespace", Leaf),
+                ("region", Leaf),
+                ("datacenter", Leaf),
+                ("task_driver", Leaf),
+                ("registry", Leaf),
+                ("job_prefix", Leaf),
+                ("tls_ca_cert", Leaf),
+            ])),
+        ),
     ]))
 }
 
@@ -942,7 +985,7 @@ fn check_semantic_warnings(config: &MoltisConfig, diagnostics: &mut Vec<Diagnost
     }
 
     // Unknown sandbox backend
-    let valid_sandbox_backends = ["auto", "docker", "apple-container"];
+    let valid_sandbox_backends = ["auto", "docker", "apple-container", "nomad", "podman"];
     if !valid_sandbox_backends.contains(&config.tools.exec.sandbox.backend.as_str()) {
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,
@@ -1130,6 +1173,60 @@ fn check_semantic_warnings(config: &MoltisConfig, diagnostics: &mut Vec<Diagnost
             path: "server.port".into(),
             message: "port is 0; a random port will be assigned at startup".into(),
         });
+    }
+
+    // Consul mesh_mode validation
+    if let Some(ref consul) = config.consul {
+        if let Some(ref mode) = consul.mesh_mode {
+            let valid_modes = ["none", "native", "proxy"];
+            if !valid_modes.contains(&mode.as_str()) {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Warning,
+                    category: "unknown-field",
+                    path: "consul.mesh_mode".into(),
+                    message: format!(
+                        "unknown mesh mode \"{mode}\"; expected one of: {}",
+                        valid_modes.join(", ")
+                    ),
+                });
+            }
+        }
+    }
+
+    // Nomad task_driver validation
+    if let Some(ref nomad) = config.nomad {
+        if let Some(ref driver) = nomad.task_driver {
+            let valid_drivers = ["docker", "podman"];
+            if !valid_drivers.contains(&driver.as_str()) {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Warning,
+                    category: "unknown-field",
+                    path: "nomad.task_driver".into(),
+                    message: format!(
+                        "unknown task driver \"{driver}\"; expected one of: {}",
+                        valid_drivers.join(", ")
+                    ),
+                });
+            }
+        }
+    }
+
+    // HC Vault auth_method validation
+    if let Some(ref hc_vault) = config.hc_vault {
+        if let Some(ref method) = hc_vault.auth_method {
+            let valid_methods = ["token", "approle", "kubernetes"];
+            if !valid_methods.contains(&method.as_str()) {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Warning,
+                    category: "unknown-field",
+                    path: "hc_vault.auth_method".into(),
+                    message: format!(
+                        "unknown auth method \"{method}\"; expected one of: {}",
+                        valid_methods.join(", ")
+                    ),
+                });
+            }
+        }
     }
 }
 

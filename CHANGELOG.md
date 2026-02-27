@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Enterprise service mesh integration**: new `moltis-mesh` crate with mesh-agnostic traits (`SecretBackend`, `MtlsCertManager`, `ServiceRegistry`, `WorkloadIdentity`, `MeshMode`)
+- **HashiCorp Vault** (`hc-vault` feature, default on): centralized secret management via Vault KV v2 with Transit envelope encryption. Supports Token, AppRole, and Kubernetes auth methods with automatic token renewal. Configure via `[hc_vault]` in moltis.toml
+- **Consul Connect** (`consul` feature, default on): service mesh mTLS with SPIFFE x509-SVIDs, service registration/discovery, and intention-based authorization middleware. Supports `native` (gateway terminates TLS) and `proxy` (sidecar handles TLS) modes. Configure via `[consul]` in moltis.toml
+- **Nomad orchestration** (`nomad` feature, default on): sandbox containers scheduled as Nomad batch jobs with Podman/Docker task drivers. Implements the `Sandbox` trait — `backend = "nomad"` or `"podman"` in sandbox config. Configure via `[nomad]` in moltis.toml
+- `LocalSecretBackend` in vault crate wrapping existing `Vault<C>` behind the `SecretBackend` trait for unified secret access
 - Real-time session sync between macOS app and web UI via `SessionEventBus` (`tokio::sync::broadcast`). Sessions created, deleted, or patched in one UI instantly appear in the other. New FFI callback `moltis_set_session_event_callback` and WebSocket `"session"` events for create/delete/fork operations.
 - Swift bridge: persistent session storage via FFI — `moltis_list_sessions`, `moltis_switch_session`, `moltis_create_session`, `moltis_session_chat_stream` functions backed by JSONL files and shared SQLite metadata (`moltis.db`) across all UIs (macOS app, web, TUI)
 - **Internationalization (i18n)**: web UI now supports runtime language switching via `i18next` with English and French locales. Error codes use structured constants with locale-aware error messages across API handlers, terminal, chat, and environment routes. Onboarding step labels, navigation buttons, and page strings use translation keys (`t()` calls)

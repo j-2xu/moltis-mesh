@@ -4,6 +4,7 @@
 //! via Argon2id. The vault must be password-unlocked once per process start.
 //! Trait-based [`Cipher`] design allows swapping the encryption backend.
 
+pub mod backend;
 pub mod error;
 pub mod kdf;
 pub mod key_wrap;
@@ -14,6 +15,7 @@ pub mod vault;
 pub mod xchacha20;
 
 pub use {
+    backend::LocalSecretBackend,
     error::VaultError,
     recovery::RecoveryKey,
     traits::Cipher,

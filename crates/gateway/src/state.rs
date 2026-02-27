@@ -304,6 +304,13 @@ pub struct GatewayInner {
     pub channel_command_mode_sessions: HashSet<String>,
     /// Which channel types are offered in the web UI (from config).
     pub channels_offered: Vec<String>,
+    /// Centralized secret backend (HC Vault or local vault wrapper).
+    #[cfg(feature = "hc-vault")]
+    pub secret_backend: Option<Arc<dyn moltis_mesh::SecretBackend>>,
+    /// Consul service registry for health reporting and service discovery.
+    #[cfg(feature = "consul")]
+    pub consul_registry:
+        Option<Arc<moltis_consul::registration::ConsulServiceRegistry>>,
 }
 
 impl GatewayInner {
@@ -336,6 +343,10 @@ impl GatewayInner {
             channel_status_log: HashMap::new(),
             channel_command_mode_sessions: HashSet::new(),
             channels_offered: vec!["telegram".into()],
+            #[cfg(feature = "hc-vault")]
+            secret_backend: None,
+            #[cfg(feature = "consul")]
+            consul_registry: None,
         }
     }
 

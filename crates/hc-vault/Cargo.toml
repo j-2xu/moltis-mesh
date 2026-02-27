@@ -1,0 +1,32 @@
+[package]
+edition.workspace = true
+name              = "moltis-hc-vault"
+version.workspace = true
+
+[features]
+default = ["metrics", "tracing"]
+metrics = ["dep:moltis-metrics"]
+tracing = ["dep:tracing"]
+
+[dependencies]
+anyhow         = { workspace = true }
+async-trait    = { workspace = true }
+base64         = { workspace = true }
+moltis-config  = { workspace = true }
+moltis-mesh    = { workspace = true }
+moltis-metrics = { optional = true, workspace = true }
+reqwest        = { workspace = true }
+secrecy        = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+thiserror      = { workspace = true }
+tokio          = { workspace = true }
+tracing        = { optional = true, workspace = true }
+
+[dev-dependencies]
+mockito  = { workspace = true }
+tempfile = { workspace = true }
+tokio    = { features = ["macros", "rt-multi-thread"], workspace = true }
+
+[lints]
+workspace = true

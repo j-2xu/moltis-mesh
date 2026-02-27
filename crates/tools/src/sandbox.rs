@@ -3094,6 +3094,13 @@ fn create_sandbox_backend(config: SandboxConfig) -> Arc<dyn Sandbox> {
 fn select_backend(config: SandboxConfig) -> Arc<dyn Sandbox> {
     match config.backend.as_str() {
         "docker" => Arc::new(DockerSandbox::new(config)),
+        #[cfg(feature = "nomad")]
+        "nomad" | "podman" => {
+            let nomad_config = moltis_nomad::NomadConfig::with_job_prefix(
+                config.container_prefix.as_deref(),
+            );
+            Arc::new(crate::nomad_sandbox::NomadSandbox::new(config, nomad_config))
+        },
         #[cfg(target_os = "macos")]
         "apple-container" => {
             if !ensure_apple_container_service() {

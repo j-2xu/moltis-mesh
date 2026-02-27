@@ -206,11 +206,96 @@ pub struct MoltisConfig {
     pub voice: VoiceConfig,
     pub cron: CronConfig,
     pub caldav: CalDavConfig,
+    /// HashiCorp Vault integration for centralized secret management.
+    #[serde(default)]
+    pub hc_vault: Option<HcVaultSection>,
+    /// Consul Connect integration for service mesh mTLS and registration.
+    #[serde(default)]
+    pub consul: Option<ConsulSection>,
+    /// Nomad integration for scheduling sandbox containers.
+    #[serde(default)]
+    pub nomad: Option<NomadSection>,
     /// Environment variables injected into the Moltis process at startup.
     /// Useful for API keys in Docker where you can't easily set env vars.
     /// Process env vars take precedence (existing vars are not overwritten).
     #[serde(default)]
     pub env: HashMap<String, String>,
+}
+
+// ── Enterprise service mesh config sections ──────────────────────────────
+
+/// HashiCorp Vault configuration section in moltis.toml.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HcVaultSection {
+    /// Vault server address (e.g. `https://vault.example.com:8200`).
+    pub address: Option<String>,
+    /// Authentication method: `"token"`, `"approle"`, or `"kubernetes"`.
+    pub auth_method: Option<String>,
+    /// Static token (for `auth_method = "token"`).
+    pub token: Option<String>,
+    /// AppRole role_id (for `auth_method = "approle"`).
+    pub role_id: Option<String>,
+    /// AppRole secret_id (for `auth_method = "approle"`).
+    pub secret_id: Option<String>,
+    /// Kubernetes auth role (for `auth_method = "kubernetes"`).
+    pub role: Option<String>,
+    /// KV v2 mount path. Default: `"secret"`.
+    pub mount_path: Option<String>,
+    /// Path prefix for all secrets. Default: `"moltis"`.
+    pub path_prefix: Option<String>,
+    /// Transit engine mount path for envelope encryption.
+    pub transit_mount: Option<String>,
+    /// Vault namespace (Enterprise).
+    pub namespace: Option<String>,
+    /// Path to CA cert for verifying Vault's TLS cert.
+    pub tls_ca_cert: Option<String>,
+}
+
+/// Consul configuration section in moltis.toml.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConsulSection {
+    /// Consul agent address. Default: `http://127.0.0.1:8500`.
+    pub address: Option<String>,
+    /// Consul ACL token.
+    pub token: Option<String>,
+    /// Datacenter name.
+    pub datacenter: Option<String>,
+    /// Service name for registration. Default: `"moltis-gateway"`.
+    pub service_name: Option<String>,
+    /// Health check interval in seconds. Default: 10.
+    pub health_check_interval: Option<u64>,
+    /// Mesh mode: `"none"`, `"native"`, or `"proxy"`. Default: `"none"`.
+    pub mesh_mode: Option<String>,
+    /// Path to CA cert for Consul TLS.
+    pub tls_ca_cert: Option<String>,
+    /// Intention cache TTL in seconds. Default: 30.
+    pub intention_cache_ttl: Option<u64>,
+}
+
+/// Nomad configuration section in moltis.toml.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NomadSection {
+    /// Nomad server address. Default: `http://127.0.0.1:4646`.
+    pub address: Option<String>,
+    /// Nomad ACL token.
+    pub token: Option<String>,
+    /// Nomad namespace (Enterprise).
+    pub namespace: Option<String>,
+    /// Nomad region.
+    pub region: Option<String>,
+    /// Datacenter for job placement.
+    pub datacenter: Option<String>,
+    /// Task driver: `"docker"` or `"podman"`. Default: `"docker"`.
+    pub task_driver: Option<String>,
+    /// Container registry URL for pulling sandbox images.
+    pub registry: Option<String>,
+    /// Prefix for Nomad job IDs. Default: `"moltis-sandbox"`.
+    pub job_prefix: Option<String>,
+    /// Path to CA cert for Nomad TLS.
+    pub tls_ca_cert: Option<String>,
 }
 
 /// Voice configuration (TTS and STT).

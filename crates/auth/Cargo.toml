@@ -5,8 +5,9 @@ repository.workspace = true
 version.workspace    = true
 
 [features]
-default = []
-vault   = ["dep:moltis-vault"]
+default        = []
+secret-backend = ["dep:moltis-mesh"]
+vault          = ["dep:moltis-vault"]
 
 [dependencies]
 anyhow            = { workspace = true }
@@ -16,6 +17,7 @@ axum              = { workspace = true }
 base64            = { workspace = true }
 dashmap           = { workspace = true }
 moltis-config     = { workspace = true }
+moltis-mesh       = { optional = true, workspace = true }
 moltis-tools      = { workspace = true }
 moltis-vault      = { optional = true, workspace = true }
 password-hash     = { workspace = true }

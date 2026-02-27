@@ -12,13 +12,17 @@ members = [
   "crates/cli",
   "crates/common",
   "crates/config",
+  "crates/consul",
   "crates/cron",
   "crates/gateway",
   "crates/graphql",
+  "crates/hc-vault",
   "crates/mcp",
   "crates/media",
   "crates/memory",
+  "crates/mesh",
   "crates/metrics",
+  "crates/nomad",
   "crates/msteams",
   "crates/oauth",
   "crates/onboarding",
@@ -205,12 +209,16 @@ moltis-channels        = { path = "crates/channels" }
 moltis-chat            = { path = "crates/chat" }
 moltis-common          = { path = "crates/common" }
 moltis-config          = { path = "crates/config" }
+moltis-consul          = { path = "crates/consul" }
 moltis-cron            = { path = "crates/cron" }
 moltis-gateway         = { default-features = false, path = "crates/gateway" }
 moltis-graphql         = { path = "crates/graphql" }
+moltis-hc-vault        = { path = "crates/hc-vault" }
 moltis-mcp             = { path = "crates/mcp" }
 moltis-media           = { path = "crates/media" }
 moltis-memory          = { path = "crates/memory" }
+moltis-mesh            = { path = "crates/mesh" }
+moltis-nomad           = { path = "crates/nomad" }
 moltis-metrics         = { path = "crates/metrics" }
 moltis-msteams         = { path = "crates/msteams" }
 moltis-oauth           = { path = "crates/oauth" }
