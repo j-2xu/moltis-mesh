@@ -81,6 +81,12 @@ pub struct HcVaultConfig {
 
     /// Path to a CA certificate for verifying the Vault server's TLS cert.
     pub tls_ca_cert: Option<PathBuf>,
+
+    /// Path to a client certificate for mTLS authentication to Vault.
+    pub tls_client_cert: Option<PathBuf>,
+
+    /// Path to a client private key for mTLS authentication to Vault.
+    pub tls_client_key: Option<PathBuf>,
 }
 
 fn default_mount_path() -> String {
@@ -218,6 +224,8 @@ impl HcVaultConfig {
             transit_mount: section.transit_mount.clone(),
             namespace: section.namespace.clone(),
             tls_ca_cert: section.tls_ca_cert.as_ref().map(PathBuf::from),
+            tls_client_cert: section.tls_client_cert.as_ref().map(PathBuf::from),
+            tls_client_key: section.tls_client_key.as_ref().map(PathBuf::from),
         })
     }
 }
@@ -238,6 +246,8 @@ mod tests {
             transit_mount: None,
             namespace: None,
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         };
 
         assert_eq!(
@@ -258,6 +268,8 @@ mod tests {
             transit_mount: None,
             namespace: None,
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         };
 
         assert_eq!(
@@ -278,6 +290,8 @@ mod tests {
             transit_mount: Some("transit".into()),
             namespace: None,
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         };
 
         assert_eq!(

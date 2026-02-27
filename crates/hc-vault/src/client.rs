@@ -113,6 +113,20 @@ impl VaultClient {
             builder = builder.add_root_certificate(ca_cert);
         }
 
+        if let (Some(cert_path), Some(key_path)) =
+            (&config.tls_client_cert, &config.tls_client_key)
+        {
+            let cert = std::fs::read(cert_path).map_err(|e| {
+                HcVaultError::Config(format!("failed to read TLS client cert: {e}"))
+            })?;
+            let key = std::fs::read(key_path).map_err(|e| {
+                HcVaultError::Config(format!("failed to read TLS client key: {e}"))
+            })?;
+            let identity = reqwest::Identity::from_pkcs8_pem(&cert, &key)
+                .map_err(|e| HcVaultError::Config(format!("invalid TLS client identity: {e}")))?;
+            builder = builder.identity(identity);
+        }
+
         let http = builder
             .build()
             .map_err(|e| HcVaultError::Config(format!("failed to build HTTP client: {e}")))?;
@@ -370,6 +384,8 @@ mod tests {
             transit_mount: Some("transit".into()),
             namespace: None,
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         }
     }
 

@@ -39,6 +39,12 @@ pub struct ConsulConfig {
     /// Path to CA cert for verifying Consul's TLS cert.
     pub tls_ca_cert: Option<PathBuf>,
 
+    /// Path to client certificate for mTLS authentication to Consul.
+    pub tls_client_cert: Option<PathBuf>,
+
+    /// Path to client private key for mTLS authentication to Consul.
+    pub tls_client_key: Option<PathBuf>,
+
     /// How long to cache intention results (seconds). Default: 30.
     #[serde(default = "default_intention_cache_ttl")]
     pub intention_cache_ttl: u64,
@@ -80,6 +86,8 @@ impl Default for ConsulConfig {
             health_check_interval: default_health_check_interval(),
             mesh_mode: MeshMode::default(),
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
             intention_cache_ttl: default_intention_cache_ttl(),
         }
     }
@@ -110,6 +118,8 @@ impl ConsulConfig {
                 .unwrap_or_else(default_health_check_interval),
             mesh_mode,
             tls_ca_cert: section.tls_ca_cert.as_ref().map(PathBuf::from),
+            tls_client_cert: section.tls_client_cert.as_ref().map(PathBuf::from),
+            tls_client_key: section.tls_client_key.as_ref().map(PathBuf::from),
             intention_cache_ttl: section
                 .intention_cache_ttl
                 .unwrap_or_else(default_intention_cache_ttl),

@@ -53,6 +53,7 @@
 
 - [Docker](docker.md)
 - [Cloud Deploy](cloud-deploy.md)
+- [HashiCorp Service Mesh](hashicorp-mesh.md)
 
 ---
 

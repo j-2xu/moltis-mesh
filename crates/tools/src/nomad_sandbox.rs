@@ -22,6 +22,8 @@ pub struct NomadSandbox {
     sandbox_config: SandboxConfig,
     nomad_config: NomadConfig,
     client: Arc<NomadClient>,
+    /// When set, sandbox jobs get a Consul Connect sidecar with this service name prefix.
+    consul_service_prefix: Option<String>,
     /// Maps SandboxId keys → (job_id, alloc_id) for running sandboxes.
     running: RwLock<std::collections::HashMap<String, (String, String)>>,
 }
@@ -29,6 +31,7 @@ pub struct NomadSandbox {
 impl NomadSandbox {
     /// Create a new Nomad sandbox backend.
     pub fn new(sandbox_config: SandboxConfig, nomad_config: NomadConfig) -> Self {
+        let consul_service_prefix = nomad_config.consul_service_prefix.clone();
         let client = Arc::new(
             NomadClient::new(nomad_config.clone())
                 .unwrap_or_else(|e| panic!("failed to create Nomad client: {e}")),
@@ -37,6 +40,7 @@ impl NomadSandbox {
             sandbox_config,
             nomad_config,
             client,
+            consul_service_prefix,
             running: RwLock::new(std::collections::HashMap::new()),
         }
     }
@@ -55,12 +59,16 @@ impl NomadSandbox {
     }
 
     /// Convert the local [`SandboxConfig`] to [`SandboxJobOpts`] for the job builder.
-    fn job_opts(&self) -> SandboxJobOpts {
+    fn job_opts(&self, id: &SandboxId) -> SandboxJobOpts {
         SandboxJobOpts {
             no_network: self.sandbox_config.no_network,
             workspace_mount: self.sandbox_config.workspace_mount.to_string(),
             cpu_quota: self.sandbox_config.resource_limits.cpu_quota,
             memory_limit: self.sandbox_config.resource_limits.memory_limit.clone(),
+            consul_service_name: self.consul_service_prefix.as_ref().map(|prefix| {
+                format!("{prefix}-{}", id.key)
+            }),
+            consul_datacenter: self.nomad_config.datacenter.clone(),
         }
     }
 }
@@ -91,7 +99,7 @@ impl Sandbox for NomadSandbox {
         );
 
         // Build and submit the job.
-        let opts = self.job_opts();
+        let opts = self.job_opts(id);
         let job_spec = build_sandbox_job(&job_id, &image, &opts, &self.nomad_config);
         let register_resp = self
             .client
@@ -227,13 +235,52 @@ mod tests {
 
     #[test]
     fn job_id_construction() {
+        use crate::sandbox::SandboxScope;
+
         let config = SandboxConfig::default();
         let nomad_config = NomadConfig::default();
         let sandbox = NomadSandbox::new(config, nomad_config);
 
         let id = SandboxId {
+            scope: SandboxScope::Session,
             key: "session-abc".into(),
         };
         assert_eq!(sandbox.job_id(&id), "moltis-sandbox-session-abc");
+    }
+
+    #[test]
+    fn job_opts_with_consul_prefix() {
+        use crate::sandbox::SandboxScope;
+
+        let config = SandboxConfig::default();
+        let mut nomad_config = NomadConfig::default();
+        nomad_config.consul_service_prefix = Some("moltis-sandbox".into());
+        nomad_config.datacenter = Some("dc1".into());
+        let sandbox = NomadSandbox::new(config, nomad_config);
+
+        let id = SandboxId {
+            scope: SandboxScope::Session,
+            key: "abc".into(),
+        };
+        let opts = sandbox.job_opts(&id);
+        assert_eq!(opts.consul_service_name, Some("moltis-sandbox-abc".into()));
+        assert_eq!(opts.consul_datacenter, Some("dc1".into()));
+    }
+
+    #[test]
+    fn job_opts_without_consul_prefix() {
+        use crate::sandbox::SandboxScope;
+
+        let config = SandboxConfig::default();
+        let nomad_config = NomadConfig::default();
+        let sandbox = NomadSandbox::new(config, nomad_config);
+
+        let id = SandboxId {
+            scope: SandboxScope::Session,
+            key: "xyz".into(),
+        };
+        let opts = sandbox.job_opts(&id);
+        assert_eq!(opts.consul_service_name, None);
+        assert_eq!(opts.consul_datacenter, None);
     }
 }

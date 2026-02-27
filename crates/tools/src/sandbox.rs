@@ -3075,14 +3075,67 @@ pub fn create_sandbox(config: SandboxConfig) -> Arc<dyn Sandbox> {
         return Arc::new(NoSandbox);
     }
 
-    select_backend(config)
+    select_backend(config, None)
 }
 
 /// Create a real sandbox backend regardless of mode (for use by SandboxRouter,
 /// which may need a real backend even when global mode is Off because per-session
 /// overrides can enable sandboxing dynamically).
-fn create_sandbox_backend(config: SandboxConfig) -> Arc<dyn Sandbox> {
-    select_backend(config)
+fn create_sandbox_backend(
+    config: SandboxConfig,
+    nomad_section: Option<&moltis_config::NomadSection>,
+) -> Arc<dyn Sandbox> {
+    select_backend(config, nomad_section)
+}
+
+/// Build a [`NomadConfig`](moltis_nomad::NomadConfig) from the `[nomad]` config section.
+///
+/// Falls back to `NomadConfig::with_job_prefix()` defaults when fields are absent.
+/// The `container_prefix` from `SandboxConfig` is used as the job prefix when the
+/// `NomadSection` doesn't specify one.
+#[cfg(feature = "nomad")]
+fn build_nomad_config(
+    sandbox_config: &SandboxConfig,
+    nomad_section: Option<&moltis_config::NomadSection>,
+) -> moltis_nomad::NomadConfig {
+    let Some(section) = nomad_section else {
+        return moltis_nomad::NomadConfig::with_job_prefix(
+            sandbox_config.container_prefix.as_deref(),
+        );
+    };
+
+    let job_prefix = section
+        .job_prefix
+        .clone()
+        .or_else(|| sandbox_config.container_prefix.clone())
+        .unwrap_or_else(|| "moltis-sandbox".into());
+
+    // Derive Consul service prefix from job_prefix when nomad section is configured.
+    let consul_service_prefix = Some(job_prefix.clone());
+
+    moltis_nomad::NomadConfig {
+        address: section
+            .address
+            .clone()
+            .unwrap_or_else(|| "http://127.0.0.1:4646".into()),
+        token: section
+            .token
+            .as_ref()
+            .map(|t: &String| secrecy::Secret::new(t.clone())),
+        namespace: section.namespace.clone(),
+        region: section.region.clone(),
+        datacenter: section.datacenter.clone(),
+        task_driver: section
+            .task_driver
+            .clone()
+            .unwrap_or_else(|| "docker".into()),
+        registry: section.registry.clone(),
+        job_prefix,
+        tls_ca_cert: section.tls_ca_cert.as_ref().map(Into::into),
+        tls_client_cert: section.tls_client_cert.as_ref().map(Into::into),
+        tls_client_key: section.tls_client_key.as_ref().map(Into::into),
+        consul_service_prefix,
+    }
 }
 
 /// Select the sandbox backend based on config and platform availability.
@@ -3091,14 +3144,15 @@ fn create_sandbox_backend(config: SandboxConfig) -> Arc<dyn Sandbox> {
 /// - On macOS, prefer Apple Container if the `container` CLI is installed
 ///   (each sandbox runs in a lightweight VM — stronger isolation than Docker).
 /// - Fall back to Docker otherwise.
-fn select_backend(config: SandboxConfig) -> Arc<dyn Sandbox> {
+fn select_backend(
+    config: SandboxConfig,
+    nomad_section: Option<&moltis_config::NomadSection>,
+) -> Arc<dyn Sandbox> {
     match config.backend.as_str() {
         "docker" => Arc::new(DockerSandbox::new(config)),
         #[cfg(feature = "nomad")]
         "nomad" | "podman" => {
-            let nomad_config = moltis_nomad::NomadConfig::with_job_prefix(
-                config.container_prefix.as_deref(),
-            );
+            let nomad_config = build_nomad_config(&config, nomad_section);
             Arc::new(crate::nomad_sandbox::NomadSandbox::new(config, nomad_config))
         },
         #[cfg(target_os = "macos")]
@@ -3251,9 +3305,21 @@ pub struct SandboxRouter {
 
 impl SandboxRouter {
     pub fn new(config: SandboxConfig) -> Self {
+        Self::with_nomad(config, None)
+    }
+
+    /// Create a router with an optional `[nomad]` config section.
+    ///
+    /// When present, the Nomad sandbox backend is fully configured from the
+    /// section (address, token, datacenter, TLS, Consul Connect prefix, etc.)
+    /// instead of using only the container prefix.
+    pub fn with_nomad(
+        config: SandboxConfig,
+        nomad_section: Option<&moltis_config::NomadSection>,
+    ) -> Self {
         // Always create a real sandbox backend, even when global mode is Off,
         // because per-session overrides can enable sandboxing dynamically.
-        let backend = create_sandbox_backend(config.clone());
+        let backend = create_sandbox_backend(config.clone(), nomad_section);
         let (event_tx, _) = tokio::sync::broadcast::channel(32);
         Self {
             config,
@@ -4208,7 +4274,7 @@ mod tests {
                 backend: "docker".into(),
                 ..Default::default()
             };
-            let backend = select_backend(config);
+            let backend = select_backend(config, None);
             assert_eq!(backend.backend_name(), "docker");
         }
 
@@ -4219,7 +4285,7 @@ mod tests {
                 backend: "apple-container".into(),
                 ..Default::default()
             };
-            let backend = select_backend(config);
+            let backend = select_backend(config, None);
             assert_eq!(backend.backend_name(), "apple-container");
         }
     }

@@ -579,6 +579,8 @@ fn build_schema_map() -> KnownKeys {
                 ("transit_mount", Leaf),
                 ("namespace", Leaf),
                 ("tls_ca_cert", Leaf),
+                ("tls_client_cert", Leaf),
+                ("tls_client_key", Leaf),
             ])),
         ),
         (
@@ -591,6 +593,8 @@ fn build_schema_map() -> KnownKeys {
                 ("health_check_interval", Leaf),
                 ("mesh_mode", Leaf),
                 ("tls_ca_cert", Leaf),
+                ("tls_client_cert", Leaf),
+                ("tls_client_key", Leaf),
                 ("intention_cache_ttl", Leaf),
             ])),
         ),
@@ -606,6 +610,8 @@ fn build_schema_map() -> KnownKeys {
                 ("registry", Leaf),
                 ("job_prefix", Leaf),
                 ("tls_ca_cert", Leaf),
+                ("tls_client_cert", Leaf),
+                ("tls_client_key", Leaf),
             ])),
         ),
     ]))

@@ -19,6 +19,11 @@ pub struct SandboxJobOpts {
     pub cpu_quota: Option<f64>,
     /// Memory limit (e.g. `"512m"`, `"1g"`).
     pub memory_limit: Option<String>,
+    /// Consul service name for Connect sidecar. When `Some`, the job gets
+    /// a `Services` block with `Connect.SidecarService` for SPIFFE identity.
+    pub consul_service_name: Option<String>,
+    /// Consul datacenter (defaults to job datacenter if unset).
+    pub consul_datacenter: Option<String>,
 }
 
 /// Build a Nomad job specification for a sandbox container.
@@ -48,7 +53,22 @@ pub fn build_sandbox_job(
         .unwrap_or(512);
 
     // Build network config.
-    let network_mode = if opts.no_network { "none" } else { "bridge" };
+    // Connect sidecar requires bridge networking; override no_network if needed.
+    let connect_enabled = opts.consul_service_name.is_some();
+    let network_mode = if connect_enabled {
+        #[cfg(feature = "tracing")]
+        if opts.no_network {
+            tracing::warn!(
+                "consul Connect sidecar requires bridge networking; \
+                 overriding no_network=true"
+            );
+        }
+        "bridge"
+    } else if opts.no_network {
+        "none"
+    } else {
+        "bridge"
+    };
 
     // Build task config.
     let mut task_config = serde_json::json!({
@@ -78,32 +98,43 @@ pub fn build_sandbox_job(
         datacenters = vec![dc.clone()];
     }
 
+    let mut task_group = serde_json::json!({
+        "Name": "sandbox",
+        "Count": 1,
+        "RestartPolicy": {
+            "Attempts": 0,
+            "Mode": "fail",
+        },
+        "Networks": [{
+            "Mode": network_mode,
+        }],
+        "Tasks": [{
+            "Name": "sandbox",
+            "Driver": task_driver,
+            "Config": task_config,
+            "Resources": {
+                "CPU": cpu_mhz,
+                "MemoryMB": memory_mb,
+            },
+            "KillTimeout": 5_000_000_000_u64, // 5s in nanoseconds
+        }],
+    });
+
+    if let Some(ref service_name) = opts.consul_service_name {
+        task_group["Services"] = serde_json::json!([{
+            "Name": service_name,
+            "Connect": {
+                "SidecarService": {}
+            }
+        }]);
+    }
+
     serde_json::json!({
         "ID": job_id,
         "Name": job_id,
         "Type": "batch",
         "Datacenters": datacenters,
-        "TaskGroups": [{
-            "Name": "sandbox",
-            "Count": 1,
-            "RestartPolicy": {
-                "Attempts": 0,
-                "Mode": "fail",
-            },
-            "Networks": [{
-                "Mode": network_mode,
-            }],
-            "Tasks": [{
-                "Name": "sandbox",
-                "Driver": task_driver,
-                "Config": task_config,
-                "Resources": {
-                    "CPU": cpu_mhz,
-                    "MemoryMB": memory_mb,
-                },
-                "KillTimeout": 5_000_000_000_u64, // 5s in nanoseconds
-            }],
-        }],
+        "TaskGroups": [task_group],
     })
 }
 
@@ -132,6 +163,8 @@ mod tests {
             workspace_mount: "ro".into(),
             cpu_quota: None,
             memory_limit: None,
+            consul_service_name: None,
+            consul_datacenter: None,
         }
     }
 
@@ -183,6 +216,60 @@ mod tests {
         assert_eq!(
             job["TaskGroups"][0]["Networks"][0]["Mode"].as_str(),
             Some("none")
+        );
+    }
+
+    #[test]
+    fn build_job_with_connect_sidecar() {
+        let mut opts = default_opts();
+        opts.consul_service_name = Some("moltis-sandbox-abc".into());
+        let nomad_config = NomadConfig::default();
+
+        let job = build_sandbox_job("test-connect", "alpine:3", &opts, &nomad_config);
+
+        // Verify network mode is bridge (required for Connect).
+        assert_eq!(
+            job["TaskGroups"][0]["Networks"][0]["Mode"].as_str(),
+            Some("bridge")
+        );
+
+        // Verify Services block with Connect sidecar.
+        let services = &job["TaskGroups"][0]["Services"];
+        assert!(services.is_array(), "Services should be an array");
+        assert_eq!(services[0]["Name"].as_str(), Some("moltis-sandbox-abc"));
+        assert!(
+            services[0]["Connect"]["SidecarService"].is_object(),
+            "SidecarService should be present"
+        );
+    }
+
+    #[test]
+    fn build_job_connect_overrides_no_network() {
+        let mut opts = default_opts();
+        opts.no_network = true;
+        opts.consul_service_name = Some("moltis-sandbox-conflict".into());
+        let nomad_config = NomadConfig::default();
+
+        let job = build_sandbox_job("test-override", "alpine:3", &opts, &nomad_config);
+
+        // Connect requires bridge — no_network should be overridden.
+        assert_eq!(
+            job["TaskGroups"][0]["Networks"][0]["Mode"].as_str(),
+            Some("bridge")
+        );
+    }
+
+    #[test]
+    fn build_job_without_connect() {
+        let opts = default_opts();
+        let nomad_config = NomadConfig::default();
+
+        let job = build_sandbox_job("test-no-connect", "alpine:3", &opts, &nomad_config);
+
+        // No Services block should exist.
+        assert!(
+            job["TaskGroups"][0]["Services"].is_null(),
+            "Services should not be present when consul_service_name is None"
         );
     }
 }

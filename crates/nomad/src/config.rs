@@ -45,6 +45,17 @@ pub struct NomadConfig {
 
     /// Path to CA cert for verifying Nomad's TLS cert.
     pub tls_ca_cert: Option<PathBuf>,
+
+    /// Path to client certificate for mTLS authentication to Nomad.
+    pub tls_client_cert: Option<PathBuf>,
+
+    /// Path to client private key for mTLS authentication to Nomad.
+    pub tls_client_key: Option<PathBuf>,
+
+    /// Consul service name prefix for Connect sidecar. When set, sandbox jobs
+    /// get a `Services` block with `Connect.SidecarService` for SPIFFE identity.
+    #[serde(default)]
+    pub consul_service_prefix: Option<String>,
 }
 
 fn default_address() -> String {
@@ -81,6 +92,9 @@ impl Default for NomadConfig {
             registry: None,
             job_prefix: default_job_prefix(),
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
+            consul_service_prefix: None,
         }
     }
 }

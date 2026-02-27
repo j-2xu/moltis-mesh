@@ -132,6 +132,8 @@ mod tests {
             transit_mount: None,
             namespace: None,
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         };
         let client = Arc::new(VaultClient::new(config, Secret::new("test".into())).unwrap());
         let backend = HcVaultBackend::new(client);
@@ -166,6 +168,8 @@ mod tests {
             transit_mount: None,
             namespace: None,
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         };
         let client = Arc::new(VaultClient::new(config, Secret::new("test".into())).unwrap());
         let backend = HcVaultBackend::new(client);
@@ -190,6 +194,8 @@ mod tests {
             transit_mount: None,
             namespace: None,
             tls_ca_cert: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         };
         let client = Arc::new(VaultClient::new(config, Secret::new("test".into())).unwrap());
         let backend = HcVaultBackend::new(client);

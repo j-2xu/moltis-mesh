@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Consul Connect sidecar for Nomad sandbox jobs**: sandbox containers scheduled via Nomad now receive a Connect sidecar with SPIFFE identity when `consul_service_prefix` is configured on `NomadConfig` or a `[nomad]` section is present in `moltis.toml`
+- **Full `NomadConfig` from `[nomad]` config section**: `select_backend()` now reads address, token, datacenter, TLS paths, and task driver from `moltis.toml` instead of only using the container prefix. Gateway passes `config.nomad` to `SandboxRouter::with_nomad()`
+- **mTLS client certificates** for HashiCorp API connections: `tls_client_cert` and `tls_client_key` fields on `[hc_vault]`, `[consul]`, and `[nomad]` config sections for mutual TLS authentication
+- **Terraform module** (`deploy/terraform/hashicorp-mesh/`): provisions Vault policies, AppRole credentials, Transit encryption key, and Consul service intentions for automated deployment
+- **HashiCorp mesh documentation** (`docs/src/hashicorp-mesh.md`): configuration reference, Vault policy HCL, Consul intention setup, mTLS configuration, and env var interpolation guide
 - **Enterprise service mesh integration**: new `moltis-mesh` crate with mesh-agnostic traits (`SecretBackend`, `MtlsCertManager`, `ServiceRegistry`, `WorkloadIdentity`, `MeshMode`)
 - **HashiCorp Vault** (`hc-vault` feature, default on): centralized secret management via Vault KV v2 with Transit envelope encryption. Supports Token, AppRole, and Kubernetes auth methods with automatic token renewal. Configure via `[hc_vault]` in moltis.toml
 - **Consul Connect** (`consul` feature, default on): service mesh mTLS with SPIFFE x509-SVIDs, service registration/discovery, and intention-based authorization middleware. Supports `native` (gateway terminates TLS) and `proxy` (sidecar handles TLS) modes. Configure via `[consul]` in moltis.toml

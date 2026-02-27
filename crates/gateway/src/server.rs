@@ -2081,7 +2081,10 @@ pub async fn prepare_gateway(
         .timezone
         .as_ref()
         .map(|tz| tz.name().to_string());
-    let sandbox_router = Arc::new(moltis_tools::sandbox::SandboxRouter::new(sandbox_config));
+    let sandbox_router = Arc::new(moltis_tools::sandbox::SandboxRouter::with_nomad(
+        sandbox_config,
+        config.nomad.as_ref(),
+    ));
 
     // Spawn background image pre-build. This bakes configured packages into a
     // container image so container creation is instant. Backends that don't

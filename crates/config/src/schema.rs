@@ -250,6 +250,10 @@ pub struct HcVaultSection {
     pub namespace: Option<String>,
     /// Path to CA cert for verifying Vault's TLS cert.
     pub tls_ca_cert: Option<String>,
+    /// Path to client certificate for mTLS authentication to Vault.
+    pub tls_client_cert: Option<String>,
+    /// Path to client private key for mTLS authentication to Vault.
+    pub tls_client_key: Option<String>,
 }
 
 /// Consul configuration section in moltis.toml.
@@ -270,6 +274,10 @@ pub struct ConsulSection {
     pub mesh_mode: Option<String>,
     /// Path to CA cert for Consul TLS.
     pub tls_ca_cert: Option<String>,
+    /// Path to client certificate for mTLS authentication to Consul.
+    pub tls_client_cert: Option<String>,
+    /// Path to client private key for mTLS authentication to Consul.
+    pub tls_client_key: Option<String>,
     /// Intention cache TTL in seconds. Default: 30.
     pub intention_cache_ttl: Option<u64>,
 }
@@ -296,6 +304,10 @@ pub struct NomadSection {
     pub job_prefix: Option<String>,
     /// Path to CA cert for Nomad TLS.
     pub tls_ca_cert: Option<String>,
+    /// Path to client certificate for mTLS authentication to Nomad.
+    pub tls_client_cert: Option<String>,
+    /// Path to client private key for mTLS authentication to Nomad.
+    pub tls_client_key: Option<String>,
 }
 
 /// Voice configuration (TTS and STT).
